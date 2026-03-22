@@ -25,7 +25,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - target: armv6-unknown-linux-gnueabihf
+          - target: arm-unknown-linux-gnueabihf
             name: armv6
             linker: arm-linux-gnueabihf-gcc
           - target: armv7-unknown-linux-gnueabihf
@@ -47,7 +47,7 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
         env:
-          CARGO_TARGET_ARMV6_UNKNOWN_LINUX_GNUEABIHF_LINKER: ${{ matrix.linker }}
+          CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER: ${{ matrix.linker }}
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: ${{ matrix.linker }}
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
       - name: Package binary

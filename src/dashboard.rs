@@ -8,265 +8,273 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Raspberry Pi Monitor</title>
+  <title>Pi Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Manrope:wght@300;400;500;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #09111d;
-      --panel: rgba(10, 18, 31, 0.88);
-      --panel-2: rgba(16, 28, 44, 0.9);
-      --line: rgba(122, 162, 255, 0.22);
-      --text: #edf4ff;
-      --muted: #8ea7c4;
-      --good: #3bd58f;
-      --warn: #ffb54c;
-      --bad: #ff6b6b;
-      --accent: #63b3ff;
-      --accent-2: #59f0c2;
+      --bg: #0a0a0a;
+      --card: #111111;
+      --border: #1f1f1f;
+      --fg: #ffffff;
+      --muted: #707070;
+      --faint: #404040;
+      --accent: #ffffff;
     }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
     body {
-      margin: 0;
-      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(circle at top left, rgba(99, 179, 255, 0.16), transparent 28%),
-        radial-gradient(circle at right, rgba(89, 240, 194, 0.12), transparent 22%),
-        linear-gradient(180deg, #0b1422 0%, #07101a 100%);
+      font-family: "Manrope", -apple-system, sans-serif;
+      font-weight: 400;
+      color: var(--fg);
+      background: var(--bg);
       min-height: 100vh;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
     }
     .shell {
-      max-width: 1160px;
+      max-width: 1200px;
       margin: 0 auto;
-      padding: 24px;
+      padding: 32px;
     }
-    .topbar {
+    header {
       display: grid;
-      gap: 16px;
-      grid-template-columns: 1.8fr 1fr;
-      margin-bottom: 20px;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: start;
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
     }
-    .hero, .status {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      box-shadow: 0 14px 44px rgba(0, 0, 0, 0.28);
-      backdrop-filter: blur(14px);
-    }
-    .hero {
-      padding: 22px;
-    }
-    .eyebrow {
-      color: var(--accent-2);
-      font-size: 12px;
-      letter-spacing: 0.16em;
+    .hostname {
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
     }
     h1 {
-      margin: 8px 0 6px;
-      font-size: clamp(28px, 5vw, 42px);
-      line-height: 1;
+      font-size: clamp(32px, 6vw, 48px);
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
     }
-    .subtitle, .meta, .status-text {
-      color: var(--muted);
-    }
-    .meta {
+    .status-bar {
       display: flex;
       gap: 16px;
+      align-items: center;
       flex-wrap: wrap;
-      margin-top: 14px;
-      font-size: 14px;
-    }
-    .status {
-      padding: 18px;
-      display: grid;
-      gap: 14px;
-      align-content: start;
-    }
-    .pill-row, .warn-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-    .pill, .warn-pill {
-      border-radius: 999px;
-      padding: 8px 12px;
-      font-size: 13px;
-      border: 1px solid transparent;
     }
     .pill {
-      background: rgba(255, 255, 255, 0.06);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 6px 12px;
+      border: 1px solid var(--border);
       color: var(--muted);
     }
-    .pill.live {
-      color: #dffef2;
-      background: rgba(59, 213, 143, 0.12);
-      border-color: rgba(59, 213, 143, 0.35);
+    .pill.live { border-color: var(--fg); color: var(--fg); }
+    .pill.offline { border-color: var(--faint); color: var(--faint); font-style: italic; }
+    .meta-row {
+      display: flex;
+      gap: 32px;
+      margin-top: 16px;
+      flex-wrap: wrap;
     }
-    .pill.offline {
-      color: #ffe2e2;
-      background: rgba(255, 107, 107, 0.12);
-      border-color: rgba(255, 107, 107, 0.35);
+    .meta-item {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 12px;
+      color: var(--muted);
     }
-    .warn-pill.good {
-      background: rgba(59, 213, 143, 0.12);
-      border-color: rgba(59, 213, 143, 0.28);
-    }
-    .warn-pill.warn {
-      background: rgba(255, 181, 76, 0.12);
-      border-color: rgba(255, 181, 76, 0.28);
-    }
-    .warn-pill.bad {
-      background: rgba(255, 107, 107, 0.12);
-      border-color: rgba(255, 107, 107, 0.28);
-    }
+    .meta-item span { color: var(--fg); }
     .grid {
       display: grid;
-      gap: 16px;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      margin-bottom: 16px;
-    }
-    .card, .charts {
-      background: var(--panel-2);
-      border: 1px solid var(--line);
-      border-radius: 20px;
-      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      margin-bottom: 1px;
     }
     .card {
-      padding: 18px;
-      min-height: 148px;
+      background: var(--card);
+      padding: 24px;
+      min-height: 140px;
+      display: flex;
+      flex-direction: column;
     }
     .label {
-      color: var(--muted);
-      font-size: 13px;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 16px;
     }
     .value {
-      margin-top: 14px;
-      font-size: 34px;
-      font-weight: 700;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 32px;
+      font-weight: 500;
       line-height: 1;
+      margin-bottom: 12px;
     }
+    .value.warn { text-decoration: underline; font-style: italic; }
+    .value.critical { font-weight: 700; }
     .detail {
-      margin-top: 12px;
-      color: var(--muted);
-      font-size: 14px;
-      min-height: 20px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      color: var(--faint);
+      margin-top: auto;
     }
+    .detail span { color: var(--muted); }
     .charts {
-      padding: 18px;
+      background: var(--card);
+      border-top: 1px solid var(--border);
     }
     .chart-grid {
       display: grid;
-      gap: 14px;
-      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1px;
+      background: var(--border);
     }
     .chart-panel {
-      padding: 14px;
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.04);
+      background: var(--card);
+      padding: 24px;
+    }
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 16px;
+    }
+    .chart-value {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 20px;
+      font-weight: 500;
     }
     canvas {
       width: 100%;
-      height: 100px;
+      height: 80px;
       display: block;
-      margin-top: 10px;
     }
-    .chart-value {
-      color: var(--text);
-      font-size: 22px;
-      font-weight: 700;
+    .warnings {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 16px;
     }
-    @media (max-width: 860px) {
-      .topbar {
-        grid-template-columns: 1fr;
-      }
-      .shell {
-        padding: 16px;
-      }
+    .warn-pill {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border: 1px solid var(--muted);
+      color: var(--muted);
+    }
+    .warn-pill.critical { border-color: var(--fg); color: var(--fg); font-weight: 700; }
+    .warn-pill.warn { font-style: italic; text-decoration: underline; }
+    @media (max-width: 768px) {
+      .shell { padding: 16px; }
+      header { grid-template-columns: 1fr; }
+      .meta-row { gap: 16px; }
+      .card { padding: 20px; min-height: 120px; }
+      .value { font-size: 28px; }
     }
   </style>
 </head>
 <body>
   <div class="shell">
-    <section class="topbar">
-      <div class="hero">
-        <div class="eyebrow">Raspberry Pi Monitor</div>
+    <header>
+      <div>
+        <div class="hostname">Raspberry Pi</div>
         <h1>__HOSTNAME__</h1>
-        <div class="subtitle">Low-overhead local dashboard for Pi thermals, power and system load.</div>
-        <div class="meta">
-          <span id="uptimeLabel">Uptime: --</span>
-          <span id="loadLabel">Load: -- / --</span>
-          <span id="clockLabel">ARM: -- GHz | GPU: -- MHz</span>
+        <div class="meta-row">
+          <div class="meta-item">Up <span id="uptimeLabel">--</span></div>
+          <div class="meta-item">Load <span id="loadLabel">-- / --</span></div>
+          <div class="meta-item">Clock <span id="clockLabel">-- / --</span></div>
         </div>
       </div>
-      <aside class="status">
-        <div class="pill-row">
-          <span id="connectionPill" class="pill">Connecting</span>
-          <span class="pill">Polling: 5s</span>
-          <span class="pill">History: 10 min</span>
-        </div>
-        <div class="status-text" id="statusText">Waiting for the first sample.</div>
-        <div class="warn-row" id="warnRow"></div>
-      </aside>
-    </section>
+      <div class="status-bar">
+        <span id="connectionPill" class="pill">Connecting</span>
+        <span class="pill">5s Poll</span>
+      </div>
+    </header>
 
     <section class="grid">
       <article class="card">
-        <div class="label">CPU Usage</div>
+        <div class="label">CPU</div>
         <div class="value" id="cpuValue">--</div>
-        <div class="detail" id="cpuDetail">Per-core activity unavailable</div>
+        <div class="detail" id="cpuDetail">--</div>
       </article>
       <article class="card">
         <div class="label">Memory</div>
         <div class="value" id="memoryValue">--</div>
-        <div class="detail" id="memoryDetail">Used vs total</div>
+        <div class="detail" id="memoryDetail">--</div>
       </article>
       <article class="card">
-        <div class="label">Disk /</div>
+        <div class="label">Disk</div>
         <div class="value" id="diskValue">--</div>
-        <div class="detail" id="diskDetail">Filesystem usage</div>
+        <div class="detail" id="diskDetail">--</div>
       </article>
       <article class="card">
-        <div class="label">CPU Temp</div>
+        <div class="label">Temperature</div>
         <div class="value" id="tempValue">--</div>
-        <div class="detail" id="tempDetail">Thermal headroom</div>
+        <div class="detail" id="tempDetail">--</div>
       </article>
       <article class="card">
-        <div class="label">Core Voltage</div>
+        <div class="label">Voltage</div>
         <div class="value" id="voltValue">--</div>
-        <div class="detail" id="voltDetail">SDRAM rails hidden until detected</div>
+        <div class="detail" id="voltDetail">--</div>
       </article>
       <article class="card">
-        <div class="label">Throttle State</div>
+        <div class="label">Throttle</div>
         <div class="value" id="throttleValue">--</div>
-        <div class="detail" id="throttleDetail">Pi firmware flags</div>
+        <div class="detail" id="throttleDetail">--</div>
       </article>
     </section>
 
     <section class="charts">
       <div class="chart-grid">
         <div class="chart-panel">
-          <div class="label">CPU</div>
-          <div class="chart-value" id="cpuChartValue">--</div>
-          <canvas id="cpuChart" width="280" height="100"></canvas>
+          <div class="chart-header">
+            <div class="label">CPU History</div>
+            <div class="chart-value" id="cpuChartValue">--</div>
+          </div>
+          <canvas id="cpuChart"></canvas>
         </div>
         <div class="chart-panel">
-          <div class="label">Memory</div>
-          <div class="chart-value" id="memChartValue">--</div>
-          <canvas id="memChart" width="280" height="100"></canvas>
+          <div class="chart-header">
+            <div class="label">Memory History</div>
+            <div class="chart-value" id="memChartValue">--</div>
+          </div>
+          <canvas id="memChart"></canvas>
         </div>
         <div class="chart-panel">
-          <div class="label">Temperature</div>
-          <div class="chart-value" id="tempChartValue">--</div>
-          <canvas id="tempChart" width="280" height="100"></canvas>
+          <div class="chart-header">
+            <div class="label">Temperature History</div>
+            <div class="chart-value" id="tempChartValue">--</div>
+          </div>
+          <canvas id="tempChart"></canvas>
         </div>
         <div class="chart-panel">
-          <div class="label">Core Voltage</div>
-          <div class="chart-value" id="voltChartValue">--</div>
-          <canvas id="voltChart" width="280" height="100"></canvas>
+          <div class="chart-header">
+            <div class="label">Voltage History</div>
+            <div class="chart-value" id="voltChartValue">--</div>
+          </div>
+          <canvas id="voltChart"></canvas>
         </div>
+      </div>
+    </section>
+
+    <section style="padding: 24px 0; border-top: 1px solid var(--border); margin-top: 1px;">
+      <div class="label" style="margin-bottom: 12px;">System Status</div>
+      <div class="warnings" id="warnRow"></div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--faint); margin-top: 16px;">
+        Last update: <span id="statusText" style="color: var(--muted);">--</span>
       </div>
     </section>
   </div>
@@ -306,37 +314,46 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
 
     function setConnection(ok) {
       const el = document.getElementById("connectionPill");
-      el.textContent = ok ? "Connected" : "Disconnected";
+      el.textContent = ok ? "Connected" : "Offline";
       el.className = ok ? "pill live" : "pill offline";
     }
 
-    function statusTone(value, warnAt, badAt) {
-      if (value >= badAt) return "var(--bad)";
-      if (value >= warnAt) return "var(--warn)";
-      return "var(--good)";
+    function statusClass(value, warnAt, criticalAt) {
+      if (value >= criticalAt) return "critical";
+      if (value >= warnAt) return "warn";
+      return "";
     }
 
-    function drawSpark(canvas, values, maxHint, color) {
+    function drawSpark(canvas, values, maxHint) {
       const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      const width = rect.width;
+      const height = rect.height;
+
       ctx.clearRect(0, 0, width, height);
 
-      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.strokeStyle = "#1f1f1f";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(0, height - 1);
-      ctx.lineTo(width, height - 1);
+      ctx.moveTo(0, height - 0.5);
+      ctx.lineTo(width, height - 0.5);
       ctx.stroke();
 
-      const filtered = values.filter((value) => Number.isFinite(value));
+      const filtered = values.filter((v) => Number.isFinite(v));
       if (filtered.length < 2) return;
 
       const max = Math.max(maxHint, ...filtered);
       const min = Math.min(...filtered);
       const span = Math.max(max - min, maxHint > 0 ? maxHint * 0.1 : 1);
 
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2.2;
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
       ctx.beginPath();
       filtered.forEach((value, index) => {
         const x = (index / (filtered.length - 1)) * width;
@@ -352,14 +369,14 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
       const row = document.getElementById("warnRow");
       row.innerHTML = "";
       const warnings = [];
-      if (sample.under_voltage_now) warnings.push(["Under-voltage", "bad"]);
-      if (sample.freq_capped_now) warnings.push(["Frequency capped", "warn"]);
-      if (sample.throttled_now) warnings.push(["Throttled", "bad"]);
-      if (sample.soft_temp_limit_now) warnings.push(["Soft temp limit", "warn"]);
-      if (!warnings.length) warnings.push(["No active Pi firmware warnings", "good"]);
-      warnings.forEach(([text, tone]) => {
+      if (sample.under_voltage_now) warnings.push(["Under-voltage", "critical"]);
+      if (sample.freq_capped_now) warnings.push(["Freq capped", "warn"]);
+      if (sample.throttled_now) warnings.push(["Throttled", "critical"]);
+      if (sample.soft_temp_limit_now) warnings.push(["Temp limit", "warn"]);
+      if (!warnings.length) warnings.push(["Nominal", ""]);
+      warnings.forEach(([text, cls]) => {
         const pill = document.createElement("span");
-        pill.className = `warn-pill ${tone}`;
+        pill.className = `warn-pill ${cls}`;
         pill.textContent = text;
         row.appendChild(pill);
       });
@@ -368,89 +385,88 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
     function renderCurrent(sample) {
       const memPercent = pct(sample.memory_used_bytes, sample.memory_total_bytes);
       const diskPercent = pct(sample.disk_used_bytes, sample.disk_total_bytes);
-      const cpuColor = statusTone(sample.cpu_usage_percent, 70, 90);
-      const memColor = statusTone(memPercent, 70, 90);
-      const tempColor = statusTone(sample.cpu_temp_c ?? 0, 60, 80);
 
-      document.getElementById("cpuValue").textContent = `${sample.cpu_usage_percent.toFixed(1)}%`;
-      document.getElementById("cpuValue").style.color = cpuColor;
-      document.getElementById("cpuDetail").textContent = sample.cpu_per_core_percent.length
-        ? sample.cpu_per_core_percent.map((value, index) => `c${index}: ${value.toFixed(0)}%`).join(" | ")
-        : "Per-core counters pending";
+      const cpuEl = document.getElementById("cpuValue");
+      cpuEl.textContent = `${sample.cpu_usage_percent.toFixed(1)}%`;
+      cpuEl.className = "value " + statusClass(sample.cpu_usage_percent, 70, 90);
+      document.getElementById("cpuDetail").innerHTML = sample.cpu_per_core_percent.length
+        ? sample.cpu_per_core_percent.map((v, i) => `<span>c${i} ${v.toFixed(0)}%</span>`).join(" ")
+        : "<span>--</span>";
 
-      document.getElementById("memoryValue").textContent = `${memPercent.toFixed(1)}%`;
-      document.getElementById("memoryValue").style.color = memColor;
-      document.getElementById("memoryDetail").textContent =
-        `${fmtBytes(sample.memory_used_bytes)} / ${fmtBytes(sample.memory_total_bytes)}`;
+      const memEl = document.getElementById("memoryValue");
+      memEl.textContent = `${memPercent.toFixed(1)}%`;
+      memEl.className = "value " + statusClass(memPercent, 70, 90);
+      document.getElementById("memoryDetail").innerHTML =
+        `<span>${fmtBytes(sample.memory_used_bytes)}</span> / ${fmtBytes(sample.memory_total_bytes)}`;
 
       document.getElementById("diskValue").textContent = `${diskPercent.toFixed(1)}%`;
-      document.getElementById("diskDetail").textContent =
-        `${fmtBytes(sample.disk_used_bytes)} / ${fmtBytes(sample.disk_total_bytes)}`;
+      document.getElementById("diskDetail").innerHTML =
+        `<span>${fmtBytes(sample.disk_used_bytes)}</span> / ${fmtBytes(sample.disk_total_bytes)}`;
 
-      document.getElementById("tempValue").textContent = sample.cpu_temp_c == null ? "--" : `${sample.cpu_temp_c.toFixed(1)}°C`;
-      document.getElementById("tempValue").style.color = tempColor;
-      document.getElementById("tempDetail").textContent = sample.gpu_temp_c == null
-        ? "GPU temp unavailable"
-        : `GPU ${sample.gpu_temp_c.toFixed(1)}°C`;
+      const tempEl = document.getElementById("tempValue");
+      tempEl.textContent = sample.cpu_temp_c == null ? "--" : `${sample.cpu_temp_c.toFixed(1)}°`;
+      tempEl.className = "value " + statusClass(sample.cpu_temp_c ?? 0, 60, 80);
+      document.getElementById("tempDetail").innerHTML = sample.gpu_temp_c == null
+        ? "<span>GPU --</span>"
+        : `<span>GPU ${sample.gpu_temp_c.toFixed(1)}°</span>`;
 
-      document.getElementById("voltValue").textContent = sample.core_volts == null ? "--" : `${sample.core_volts.toFixed(2)}V`;
-      document.getElementById("voltDetail").textContent =
-        `SDRAM C/I/P: ${sample.sdram_c_volts?.toFixed?.(2) ?? "--"} / ${sample.sdram_i_volts?.toFixed?.(2) ?? "--"} / ${sample.sdram_p_volts?.toFixed?.(2) ?? "--"} V`;
+      const voltEl = document.getElementById("voltValue");
+      voltEl.textContent = sample.core_volts == null ? "--" : `${sample.core_volts.toFixed(2)}V`;
+      document.getElementById("voltDetail").innerHTML =
+        `SDRAM <span>${sample.sdram_c_volts?.toFixed?.(2) ?? "--"}</span> / <span>${sample.sdram_i_volts?.toFixed?.(2) ?? "--"}</span> / <span>${sample.sdram_p_volts?.toFixed?.(2) ?? "--"}</span>`;
 
-      document.getElementById("throttleValue").textContent = sample.throttled_now ? "Active" : "Clear";
-      document.getElementById("throttleValue").style.color = sample.throttled_now || sample.under_voltage_now
-        ? "var(--bad)"
-        : "var(--good)";
-      document.getElementById("throttleDetail").textContent =
-        sample.throttled_raw == null ? "vcgencmd unavailable" : `Raw flags 0x${sample.throttled_raw.toString(16)}`;
+      const throttleEl = document.getElementById("throttleValue");
+      throttleEl.textContent = sample.throttled_now ? "Active" : "Clear";
+      throttleEl.className = "value" + (sample.throttled_now || sample.under_voltage_now ? " critical" : "");
+      document.getElementById("throttleDetail").innerHTML =
+        sample.throttled_raw == null ? "<span>--</span>" : `<span>0x${sample.throttled_raw.toString(16).toUpperCase()}</span>`;
 
-      document.getElementById("uptimeLabel").textContent = `Uptime: ${fmtDuration(sample.uptime_seconds)}`;
-      document.getElementById("loadLabel").textContent = `Load: ${sample.loadavg_1.toFixed(2)} / ${sample.loadavg_5.toFixed(2)}`;
+      document.getElementById("uptimeLabel").textContent = fmtDuration(sample.uptime_seconds);
+      document.getElementById("loadLabel").textContent = `${sample.loadavg_1.toFixed(2)} / ${sample.loadavg_5.toFixed(2)}`;
 
       const armGHz = sample.arm_clock_hz == null ? "--" : (sample.arm_clock_hz / 1e9).toFixed(2);
       const gpuMHz = sample.gpu_clock_hz == null ? "--" : (sample.gpu_clock_hz / 1e6).toFixed(0);
-      document.getElementById("clockLabel").textContent = `ARM: ${armGHz} GHz | GPU: ${gpuMHz} MHz`;
+      document.getElementById("clockLabel").textContent = `${armGHz}GHz / ${gpuMHz}MHz`;
       document.getElementById("statusText").textContent = new Date(sample.timestamp_unix_ms).toLocaleTimeString();
 
       renderWarnings(sample);
     }
 
     function renderCharts(history) {
-      const cpu = history.map((item) => item.cpu_usage_percent);
-      const mem = history.map((item) => pct(item.memory_used_bytes, item.memory_total_bytes));
-      const temp = history.map((item) => item.cpu_temp_c);
-      const volt = history.map((item) => item.core_volts);
+      const cpu = history.map((i) => i.cpu_usage_percent);
+      const mem = history.map((i) => pct(i.memory_used_bytes, i.memory_total_bytes));
+      const temp = history.map((i) => i.cpu_temp_c);
+      const volt = history.map((i) => i.core_volts);
 
-      drawSpark(charts.cpu, cpu, 100, "#63b3ff");
-      drawSpark(charts.mem, mem, 100, "#59f0c2");
-      drawSpark(charts.temp, temp, 90, "#ffb54c");
-      drawSpark(charts.volt, volt, 2, "#ff8d73");
+      drawSpark(charts.cpu, cpu, 100);
+      drawSpark(charts.mem, mem, 100);
+      drawSpark(charts.temp, temp, 90);
+      drawSpark(charts.volt, volt, 2);
 
       const latest = history[history.length - 1];
       if (!latest) return;
 
       document.getElementById("cpuChartValue").textContent = `${latest.cpu_usage_percent.toFixed(1)}%`;
       document.getElementById("memChartValue").textContent = `${pct(latest.memory_used_bytes, latest.memory_total_bytes).toFixed(1)}%`;
-      document.getElementById("tempChartValue").textContent = latest.cpu_temp_c == null ? "--" : `${latest.cpu_temp_c.toFixed(1)}°C`;
+      document.getElementById("tempChartValue").textContent = latest.cpu_temp_c == null ? "--" : `${latest.cpu_temp_c.toFixed(1)}°`;
       document.getElementById("voltChartValue").textContent = latest.core_volts == null ? "--" : `${latest.core_volts.toFixed(2)}V`;
     }
 
     async function refresh() {
       try {
-        const [currentResponse, historyResponse] = await Promise.all([
+        const [currentRes, historyRes] = await Promise.all([
           fetch("/api/current", { cache: "no-store" }),
           fetch("/api/history?limit=120", { cache: "no-store" }),
         ]);
-        if (!currentResponse.ok || !historyResponse.ok) throw new Error("request failed");
-
-        const current = await currentResponse.json();
-        const history = await historyResponse.json();
+        if (!currentRes.ok || !historyRes.ok) throw new Error("request failed");
+        const current = await currentRes.json();
+        const history = await historyRes.json();
         setConnection(true);
         renderCurrent(current);
         renderCharts(history);
       } catch (_) {
         setConnection(false);
-        document.getElementById("statusText").textContent = "Unable to reach API.";
+        document.getElementById("statusText").textContent = "Connection failed";
       }
     }
 

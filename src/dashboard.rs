@@ -177,12 +177,57 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
     }
     .warn-pill.critical { border-color: var(--fg); color: var(--fg); font-weight: 700; }
     .warn-pill.warn { font-style: italic; text-decoration: underline; }
+    .table-section {
+      border-top: 1px solid var(--border);
+      margin-top: 1px;
+      padding: 24px 0;
+    }
+    .table-section .label { margin-bottom: 16px; }
+    .data-table {
+      width: 100%;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 12px;
+      border-collapse: collapse;
+    }
+    .data-table th {
+      text-align: left;
+      font-weight: 500;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .data-table td {
+      padding: 10px 12px;
+      color: var(--fg);
+      border-bottom: 1px solid var(--border);
+    }
+    .data-table td.muted { color: var(--muted); }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .mem-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      margin-top: 16px;
+    }
+    .mem-item {
+      background: var(--card);
+      padding: 16px;
+    }
+    .mem-item .label { margin-bottom: 8px; }
+    .mem-item .value { font-size: 18px; margin-bottom: 0; }
     @media (max-width: 768px) {
       .shell { padding: 16px; }
       header { grid-template-columns: 1fr; }
       .meta-row { gap: 16px; }
       .card { padding: 20px; min-height: 120px; }
       .value { font-size: 28px; }
+      .data-table { font-size: 11px; }
+      .data-table th, .data-table td { padding: 8px; }
     }
   </style>
 </head>
@@ -268,6 +313,47 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
           <canvas id="voltChart"></canvas>
         </div>
       </div>
+    </section>
+
+    <section class="table-section">
+      <div class="label">Memory Breakdown</div>
+      <div class="mem-grid" id="memGrid"></div>
+    </section>
+
+    <section class="table-section">
+      <div class="label">Network</div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Interface</th>
+            <th class="num">RX</th>
+            <th class="num">TX</th>
+            <th class="num">RX Pkts</th>
+            <th class="num">TX Pkts</th>
+          </tr>
+        </thead>
+        <tbody id="networkBody">
+          <tr><td colspan="5" class="muted">--</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="table-section">
+      <div class="label">Top Processes</div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="num">PID</th>
+            <th>Name</th>
+            <th class="num">CPU</th>
+            <th class="num">Memory</th>
+            <th class="num">State</th>
+          </tr>
+        </thead>
+        <tbody id="processBody">
+          <tr><td colspan="5" class="muted">--</td></tr>
+        </tbody>
+      </table>
     </section>
 
     <section style="padding: 24px 0; border-top: 1px solid var(--border); margin-top: 1px;">
@@ -382,6 +468,58 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
       });
     }
 
+    function renderMemoryBreakdown(sample) {
+      const grid = document.getElementById("memGrid");
+      const items = [
+        { label: "Used", value: fmtBytes(sample.memory_used_bytes) },
+        { label: "Buffers", value: fmtBytes(sample.memory_buffers_bytes) },
+        { label: "Cached", value: fmtBytes(sample.memory_cached_bytes) },
+        { label: "Shared", value: fmtBytes(sample.memory_shared_bytes) },
+        { label: "Swap Used", value: fmtBytes(sample.swap_used_bytes) },
+        { label: "Swap Total", value: fmtBytes(sample.swap_total_bytes) },
+      ];
+      grid.innerHTML = items.map(item => `
+        <div class="mem-item">
+          <div class="label">${item.label}</div>
+          <div class="value">${item.value}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderNetwork(sample) {
+      const tbody = document.getElementById("networkBody");
+      if (!sample.network || !sample.network.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="muted">No interfaces</td></tr>';
+        return;
+      }
+      tbody.innerHTML = sample.network.map(iface => `
+        <tr>
+          <td>${iface.name}</td>
+          <td class="num">${fmtBytes(iface.rx_bytes)}</td>
+          <td class="num">${fmtBytes(iface.tx_bytes)}</td>
+          <td class="num muted">${iface.rx_packets.toLocaleString()}</td>
+          <td class="num muted">${iface.tx_packets.toLocaleString()}</td>
+        </tr>
+      `).join("");
+    }
+
+    function renderProcesses(sample) {
+      const tbody = document.getElementById("processBody");
+      if (!sample.processes || !sample.processes.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="muted">--</td></tr>';
+        return;
+      }
+      tbody.innerHTML = sample.processes.map(proc => `
+        <tr>
+          <td class="num muted">${proc.pid}</td>
+          <td>${proc.name}</td>
+          <td class="num">${proc.cpu_percent.toFixed(1)}%</td>
+          <td class="num">${fmtBytes(proc.mem_bytes)}</td>
+          <td class="num muted">${proc.state}</td>
+        </tr>
+      `).join("");
+    }
+
     function renderCurrent(sample) {
       const memPercent = pct(sample.memory_used_bytes, sample.memory_total_bytes);
       const diskPercent = pct(sample.disk_used_bytes, sample.disk_total_bytes);
@@ -430,6 +568,9 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
       document.getElementById("statusText").textContent = new Date(sample.timestamp_unix_ms).toLocaleTimeString();
 
       renderWarnings(sample);
+      renderMemoryBreakdown(sample);
+      renderNetwork(sample);
+      renderProcesses(sample);
     }
 
     function renderCharts(history) {

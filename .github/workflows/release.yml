@@ -1,0 +1,81 @@
+name: Build & Release
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  determine-version:
+    name: Determine Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    needs: determine-version
+    strategy:
+      matrix:
+        include:
+          - target: armv6-unknown-linux-gnueabihf
+            name: armv6
+            linker: arm-linux-gnueabihf-gcc
+          - target: armv7-unknown-linux-gnueabihf
+            name: armv7
+            linker: arm-linux-gnueabihf-gcc
+          - target: aarch64-unknown-linux-gnu
+            name: aarch64
+            linker: aarch64-linux-gnu-gcc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cross-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_ARMV6_UNKNOWN_LINUX_GNUEABIHF_LINKER: ${{ matrix.linker }}
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: ${{ matrix.linker }}
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+      - name: Package binary
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czvf cloakynode-${{ needs.determine-version.outputs.version }}-${{ matrix.name }}.tar.gz cloakynode
+          mv cloakynode-${{ needs.determine-version.outputs.version }}-${{ matrix.name }}.tar.gz ../../..
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloakynode-${{ matrix.name }}
+          path: cloakynode-${{ needs.determine-version.outputs.version }}-${{ matrix.name }}.tar.gz
+
+  release:
+    name: Release
+    needs:
+      - determine-version
+      - build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cloakynode-*
+          merge-multiple: true
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: cloakynode-${{ needs.determine-version.outputs.version }}-*.tar.gz
+          generate_release_notes: true

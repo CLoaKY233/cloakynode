@@ -8,11 +8,18 @@ pub struct SystemSample {
     pub cpu_per_core_percent: Vec<f32>,
     pub memory_used_bytes: u64,
     pub memory_total_bytes: u64,
+    pub memory_buffers_bytes: u64,
+    pub memory_cached_bytes: u64,
+    pub memory_shared_bytes: u64,
+    pub swap_total_bytes: u64,
+    pub swap_used_bytes: u64,
     pub disk_used_bytes: u64,
     pub disk_total_bytes: u64,
     pub uptime_seconds: f64,
     pub loadavg_1: f32,
     pub loadavg_5: f32,
+    pub network: Vec<NetworkInterface>,
+    pub processes: Vec<ProcessInfo>,
     pub cpu_temp_c: Option<f32>,
     pub gpu_temp_c: Option<f32>,
     pub core_volts: Option<f32>,
@@ -51,12 +58,41 @@ pub struct CpuTimes {
 pub struct MemInfo {
     pub total_bytes: u64,
     pub used_bytes: u64,
+    pub buffers_bytes: u64,
+    pub cached_bytes: u64,
+    pub shared_bytes: u64,
+    pub swap_total_bytes: u64,
+    pub swap_used_bytes: u64,
 }
 
 #[derive(Debug)]
 pub struct DiskInfo {
     pub total_bytes: u64,
     pub used_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NetworkInterface {
+    pub name: String,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+    pub rx_packets: u64,
+    pub tx_packets: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub name: String,
+    pub cpu_percent: f32,
+    pub mem_bytes: u64,
+    pub state: char,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProcessCpuTimes {
+    pub pid: u32,
+    pub total_jiffies: u64,
 }
 
 #[allow(clippy::struct_excessive_bools)]

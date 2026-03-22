@@ -1,11 +1,14 @@
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use rustix::fs::statvfs;
 
-use crate::models::{CpuTimes, DiskInfo, MemInfo, ThrottleFlags};
+use crate::models::{
+    CpuTimes, DiskInfo, MemInfo, NetworkInterface, ProcessCpuTimes, ProcessInfo, ThrottleFlags,
+};
 
 #[must_use]
 pub fn unix_now_ms() -> u64 {
@@ -179,6 +182,11 @@ pub fn read_meminfo() -> Result<MemInfo, String> {
 pub fn parse_meminfo(raw: &str) -> Result<MemInfo, String> {
     let mut total_kb: Option<u64> = None;
     let mut available_kb: Option<u64> = None;
+    let mut buffers_kb: u64 = 0;
+    let mut cached_kb: u64 = 0;
+    let mut shmem_kb: u64 = 0;
+    let mut swap_total_kb: u64 = 0;
+    let mut swap_free_kb: u64 = 0;
 
     for line in raw.lines() {
         let mut parts = line.split_whitespace();
@@ -187,6 +195,15 @@ pub fn parse_meminfo(raw: &str) -> Result<MemInfo, String> {
             Some("MemAvailable:") => {
                 available_kb = parts.next().and_then(|value| value.parse().ok());
             }
+            Some("Buffers:") => buffers_kb = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+            Some("Cached:") => cached_kb = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+            Some("Shmem:") => shmem_kb = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+            Some("SwapTotal:") => {
+                swap_total_kb = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+            }
+            Some("SwapFree:") => {
+                swap_free_kb = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+            }
             _ => {}
         }
     }
@@ -194,10 +211,16 @@ pub fn parse_meminfo(raw: &str) -> Result<MemInfo, String> {
     let total_kb = total_kb.ok_or_else(|| "MemTotal missing".to_string())?;
     let available_kb = available_kb.ok_or_else(|| "MemAvailable missing".to_string())?;
     let used_kb = total_kb.saturating_sub(available_kb);
+    let swap_used_kb = swap_total_kb.saturating_sub(swap_free_kb);
 
     Ok(MemInfo {
         total_bytes: total_kb * 1024,
         used_bytes: used_kb * 1024,
+        buffers_bytes: buffers_kb * 1024,
+        cached_bytes: cached_kb * 1024,
+        shared_bytes: shmem_kb * 1024,
+        swap_total_bytes: swap_total_kb * 1024,
+        swap_used_bytes: swap_used_kb * 1024,
     })
 }
 
@@ -306,6 +329,148 @@ pub fn decode_throttled(raw: Option<u32>) -> ThrottleFlags {
     }
 }
 
+/// Read network interface statistics from `/proc/net/dev`.
+///
+/// # Errors
+///
+/// Returns an error if `/proc/net/dev` cannot be read.
+pub fn read_network_stats() -> Result<Vec<NetworkInterface>, String> {
+    let raw = std::fs::read_to_string("/proc/net/dev").map_err(|error| error.to_string())?;
+    parse_network_stats(&raw)
+}
+
+/// Parse network interface statistics from `/proc/net/dev` content.
+///
+/// # Errors
+///
+/// Returns an error if the content is malformed.
+pub fn parse_network_stats(raw: &str) -> Result<Vec<NetworkInterface>, String> {
+    let mut interfaces = Vec::new();
+
+    for line in raw.lines().skip(2) {
+        let Some((name, stats)) = line.split_once(':') else {
+            continue;
+        };
+        let name = name.trim().to_string();
+        if name.is_empty() || name == "lo" {
+            continue;
+        }
+
+        let parts: Vec<&str> = stats.split_whitespace().collect();
+        if parts.len() < 16 {
+            continue;
+        }
+
+        let rx_bytes = parts[0].parse().unwrap_or(0);
+        let rx_packets = parts[1].parse().unwrap_or(0);
+        let tx_bytes = parts[8].parse().unwrap_or(0);
+        let tx_packets = parts[9].parse().unwrap_or(0);
+
+        interfaces.push(NetworkInterface {
+            name,
+            rx_bytes,
+            tx_bytes,
+            rx_packets,
+            tx_packets,
+        });
+    }
+
+    Ok(interfaces)
+}
+
+const TOP_PROCESSES: usize = 10;
+
+/// Read top processes by CPU usage from `/proc`.
+///
+/// # Errors
+///
+/// Returns an error if `/proc` cannot be read.
+#[allow(clippy::implicit_hasher)]
+pub fn read_top_processes<S: std::hash::BuildHasher>(
+    previous: &HashMap<u32, ProcessCpuTimes, S>,
+    hz: u64,
+) -> Result<(Vec<ProcessInfo>, HashMap<u32, ProcessCpuTimes>), String> {
+    let proc_path = Path::new("/proc");
+    let mut current_times = HashMap::new();
+    let mut processes = Vec::new();
+
+    let entries = std::fs::read_dir(proc_path).map_err(|error| error.to_string())?;
+
+    for entry in entries.filter_map(Result::ok) {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        let Ok(pid) = name_str.parse::<u32>() else {
+            continue;
+        };
+
+        let stat_path = entry.path().join("stat");
+        let Ok(stat_raw) = std::fs::read_to_string(&stat_path) else {
+            continue;
+        };
+
+        let Some((proc_info, cpu_times)) = parse_process_stat(&stat_raw, pid, previous, hz) else {
+            continue;
+        };
+
+        current_times.insert(pid, cpu_times);
+        processes.push(proc_info);
+    }
+
+    processes.sort_by(|a, b| {
+        b.cpu_percent
+            .partial_cmp(&a.cpu_percent)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    processes.truncate(TOP_PROCESSES);
+
+    Ok((processes, current_times))
+}
+
+#[allow(clippy::implicit_hasher)]
+fn parse_process_stat<S: std::hash::BuildHasher>(
+    raw: &str,
+    pid: u32,
+    previous: &HashMap<u32, ProcessCpuTimes, S>,
+    hz: u64,
+) -> Option<(ProcessInfo, ProcessCpuTimes)> {
+    let open_paren = raw.find('(')?;
+    let close_paren = raw.rfind(')')?;
+    let comm = raw[open_paren + 1..close_paren].to_string();
+
+    let after_comm = &raw[close_paren + 1..];
+    let parts: Vec<&str> = after_comm.split_whitespace().collect();
+    if parts.len() < 22 {
+        return None;
+    }
+
+    let state = parts[0].chars().next()?;
+    let utime: u64 = parts[11].parse().ok()?;
+    let stime: u64 = parts[12].parse().ok()?;
+    let rss_pages: u64 = parts[21].parse().ok()?;
+    let page_size = 4096_u64;
+    let mem_bytes = rss_pages.saturating_mul(page_size);
+
+    let total_jiffies = utime.saturating_add(stime);
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+    let cpu_percent = if let Some(prev) = previous.get(&pid) {
+        let jiffies_delta = total_jiffies.saturating_sub(prev.total_jiffies) as f64;
+        ((jiffies_delta / hz as f64) * 100.0) as f32
+    } else {
+        0.0
+    };
+
+    Some((
+        ProcessInfo {
+            pid,
+            name: comm,
+            cpu_percent,
+            mem_bytes,
+            state,
+        },
+        ProcessCpuTimes { pid, total_jiffies },
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,12 +478,27 @@ mod tests {
     #[test]
     fn parses_meminfo() {
         let mem = parse_meminfo(
-            "MemTotal:        947952 kB\nMemFree:          73348 kB\nMemAvailable:    531140 kB\n",
+            "MemTotal:        947952 kB\nMemFree:          73348 kB\nMemAvailable:    531140 kB\nBuffers:          32768 kB\nCached:          128000 kB\nShmem:            16384 kB\nSwapTotal:       524288 kB\nSwapFree:        524224 kB\n",
         )
         .expect("meminfo should parse");
 
         assert_eq!(mem.total_bytes, 947_952 * 1024);
         assert_eq!(mem.used_bytes, (947_952 - 531_140) * 1024);
+        assert_eq!(mem.buffers_bytes, 32_768 * 1024);
+        assert_eq!(mem.cached_bytes, 128_000 * 1024);
+        assert_eq!(mem.shared_bytes, 16_384 * 1024);
+        assert_eq!(mem.swap_total_bytes, 524_288 * 1024);
+        assert_eq!(mem.swap_used_bytes, 64 * 1024);
+    }
+
+    #[test]
+    fn parses_network_stats() {
+        let raw = "Inter-|   Receive                                                |  Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n  eth0: 1234567   8901    0    0    0     0          0         0 9876543   4321    0    0    0     0       0          0\n    lo:       0       0    0    0    0     0          0         0        0       0    0    0    0       0          0\n";
+        let interfaces = parse_network_stats(raw).expect("network stats should parse");
+        assert_eq!(interfaces.len(), 1);
+        assert_eq!(interfaces[0].name, "eth0");
+        assert_eq!(interfaces[0].rx_bytes, 1_234_567);
+        assert_eq!(interfaces[0].tx_bytes, 9_876_543);
     }
 
     #[test]

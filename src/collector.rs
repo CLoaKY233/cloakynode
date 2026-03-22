@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use tokio::{
     process::Command,
@@ -7,18 +7,20 @@ use tokio::{
 
 use crate::{
     config::Config,
-    models::{CpuTimes, SystemSample},
+    models::{CpuTimes, ProcessCpuTimes, SystemSample},
     state::SharedState,
     system,
 };
 
 const VCGEN_TIMEOUT: Duration = Duration::from_millis(250);
+const HZ: u64 = 100;
 
 #[derive(Debug)]
 pub struct Collector {
     cpu_temp_path: Option<PathBuf>,
     vcgencmd_available: bool,
     previous_cpu: Option<Vec<CpuTimes>>,
+    previous_processes: HashMap<u32, ProcessCpuTimes>,
 }
 
 impl Collector {
@@ -28,6 +30,7 @@ impl Collector {
             cpu_temp_path: system::detect_cpu_temp_path(),
             vcgencmd_available: true,
             previous_cpu: None,
+            previous_processes: HashMap::new(),
         }
     }
 
@@ -62,6 +65,11 @@ impl Collector {
         let uptime_seconds = system::read_uptime_seconds()?;
         let (loadavg_1, loadavg_5) = system::read_loadavg()?;
 
+        let network = system::read_network_stats().unwrap_or_default();
+        let (processes, current_process_times) =
+            system::read_top_processes(&self.previous_processes, HZ)?;
+        self.previous_processes = current_process_times;
+
         let cpu_temp_c = self
             .cpu_temp_path
             .as_deref()
@@ -82,11 +90,18 @@ impl Collector {
             cpu_per_core_percent,
             memory_used_bytes: meminfo.used_bytes,
             memory_total_bytes: meminfo.total_bytes,
+            memory_buffers_bytes: meminfo.buffers_bytes,
+            memory_cached_bytes: meminfo.cached_bytes,
+            memory_shared_bytes: meminfo.shared_bytes,
+            swap_total_bytes: meminfo.swap_total_bytes,
+            swap_used_bytes: meminfo.swap_used_bytes,
             disk_used_bytes: diskinfo.used_bytes,
             disk_total_bytes: diskinfo.total_bytes,
             uptime_seconds,
             loadavg_1,
             loadavg_5,
+            network,
+            processes,
             cpu_temp_c,
             gpu_temp_c,
             core_volts,

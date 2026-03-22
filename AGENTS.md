@@ -178,6 +178,11 @@ src/
 - `tower` - Service utilities
 - `rustix` - Low-level system calls
 
+## CI/CD and Releases
+
+- The `ci.yml` GitHub Actions workflow runs formatting (`cargo fmt`), linting (`cargo clippy`), and tests (`cargo test`) on all PRs and pushes to `main`.
+- The `release.yml` GitHub Actions workflow runs when a tag matching `v*` is pushed. It cross-compiles the application for `armv6`, `armv7`, and `aarch64` architectures (covering all Raspberry Pi models) and creates a GitHub Release with the resulting tarballs.
+
 ## Environment Variables
 
 Configuration can be set via environment variables with `CLOAKYNODE_` prefix:
